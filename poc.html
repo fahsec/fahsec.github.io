@@ -26,9 +26,8 @@
 <h2>Baseline</h2>
 <div><button onclick="normal()">Normal</button></div>
 
-<h2>Truncation tests (same 215-character length)</h2>
+<h2>Truncation test (same 215-character length)</h2>
 <div><button onclick="longAsciiTxt()">215-char .txt</button></div>
-<div><button onclick="longAsciiApk()">215-char .apk (may show "file might be harmful")</button></div>
 
 <pre id="log">No download triggered yet.</pre>
 
@@ -38,13 +37,15 @@
   <tr><td>Normal</td><td>long ASCII <code>harmless…​.txt</code></td>
       <td><code>.txt</code> visible</td></tr>
   <tr><td>215-char .txt</td><td>211 × <code>a</code> + <code>.txt</code></td>
-      <td>If <code>.txt</code> also disappears, this is a <b>generic long-name</b> truncation;
-          if <code>.txt</code> stays visible while <code>.apk</code> does not, the truncation is
-          <code>.apk</code>/layout specific</td></tr>
-  <tr><td>215-char .apk</td><td>211 × <code>a</code> + <code>.apk</code></td>
-      <td>If <code>.apk</code> disappears, same Downloads-list path; Chrome may show a
-          "file might be harmful" warning first</td></tr>
+      <td>If <code>.txt</code> disappears while the <b>Normal</b> baseline keeps it, the
+          Downloads title is truncating from the tail and hiding the extension</td></tr>
 </table>
+
+<p class="note">
+  This page uses <code>.txt</code> so Chrome does not show the "file might be harmful" warning.
+  The same tail truncation is what hides <code>.apk</code>/<code>.exe</code>; the
+  <code>.apk</code> variant is available from the local server at <code>/f1</code>.
+</p>
 
 
 <script>
@@ -53,7 +54,6 @@
 
   // Exact 215 UTF-16 code units, pure ASCII.
   const ASCII_TXT = 'a'.repeat(211) + '.txt';
-  const ASCII_APK = 'a'.repeat(211) + '.apk';
 
   function download(name) {
     const a = document.createElement('a');
@@ -77,10 +77,6 @@
 
   function longAsciiTxt() {
     download(ASCII_TXT);
-  }
-
-  function longAsciiApk() {
-    download(ASCII_APK);
   }
 </script>
 </body>
